@@ -47,6 +47,7 @@ jobs:
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           working-directory: .
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-comment: false
 
   deploy_production:
     needs: test
@@ -69,3 +70,4 @@ jobs:
           working-directory: .
           vercel-args: "--prod"
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-comment: false
