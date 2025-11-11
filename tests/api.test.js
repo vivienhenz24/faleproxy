@@ -1,60 +1,8 @@
 const request = require('supertest');
 const nock = require('nock');
-const express = require('express');
-const path = require('path');
+const axios = require('axios');
+const app = require('../app');
 const { sampleHtmlWithYale } = require('./test-utils');
-
-// Import app but don't let it listen on a port (we'll use supertest for that)
-// Create a test app with the same route handlers
-const testApp = express();
-testApp.use(express.json());
-testApp.use(express.urlencoded({ extended: true }));
-
-// Mock the app's routes for testing
-testApp.post('/fetch', async (req, res) => {
-  try {
-    const { url } = req.body;
-    
-    if (!url) {
-      return res.status(400).json({ error: 'URL is required' });
-    }
-
-    // For test purposes, we're using the mocked response from nock
-    // The actual HTTP request is intercepted by nock
-    const response = await require('axios').get(url);
-    const html = response.data;
-    
-    // Use cheerio to parse HTML and selectively replace text content, not URLs
-    const $ = require('cheerio').load(html);
-    
-    // Process text nodes in the body
-    $('body *').contents().filter(function() {
-      return this.nodeType === 3; // Text nodes only
-    }).each(function() {
-      // Replace text content but not in URLs or attributes
-      const text = $(this).text();
-      const newText = text.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-      if (text !== newText) {
-        $(this).replaceWith(newText);
-      }
-    });
-    
-    // Process title separately
-    const title = $('title').text().replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-    $('title').text(title);
-    
-    return res.json({ 
-      success: true, 
-      content: $.html(),
-      title: title,
-      originalUrl: url
-    });
-  } catch (error) {
-    return res.status(500).json({ 
-      error: `Failed to fetch content: ${error.message}` 
-    });
-  }
-});
 
 describe('API Endpoints', () => {
   beforeAll(() => {
@@ -73,10 +21,19 @@ describe('API Endpoints', () => {
   afterEach(() => {
     // Clear any lingering nock interceptors after each test
     nock.cleanAll();
+    jest.restoreAllMocks();
+  });
+
+  test('GET / should serve the landing page', async () => {
+    const response = await request(app).get('/');
+
+    expect(response.statusCode).toBe(200);
+    expect(response.text).toContain('<!DOCTYPE html>');
+    expect(response.text).toContain('Faleproxy');
   });
 
   test('POST /fetch should return 400 if URL is missing', async () => {
-    const response = await request(testApp)
+    const response = await request(app)
       .post('/fetch')
       .send({});
 
@@ -90,7 +47,7 @@ describe('API Endpoints', () => {
       .get('/')
       .reply(200, sampleHtmlWithYale);
 
-    const response = await request(testApp)
+    const response = await request(app)
       .post('/fetch')
       .send({ url: 'https://example.com/' });
 
@@ -102,13 +59,42 @@ describe('API Endpoints', () => {
     expect(response.body.content).toContain('>About Fale<');  // Link text should be changed
   });
 
+  test('POST /fetch should use axios when URL is not example.com', async () => {
+    const sampleHtml = `
+      <html>
+        <head><title>Yale Club</title></head>
+        <body>
+          <p>Welcome Yale alumni!</p>
+          <a href="https://yale.edu">Visit Yale</a>
+        </body>
+      </html>
+    `;
+
+    nock('https://another-site.com')
+      .get('/')
+      .reply(200, sampleHtml);
+
+    const axiosSpy = jest.spyOn(axios, 'get');
+
+    const response = await request(app)
+      .post('/fetch')
+      .send({ url: 'https://another-site.com/' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.title).toBe('Fale Club');
+    expect(response.body.content).toContain('Welcome Fale alumni!');
+    expect(response.body.content).toContain('https://yale.edu');
+    expect(axiosSpy).toHaveBeenCalled();
+  });
+
   test('POST /fetch should handle errors from external sites', async () => {
     // Mock a failing URL
     nock('https://error-site.com')
       .get('/')
       .replyWithError('Connection refused');
 
-    const response = await request(testApp)
+    const response = await request(app)
       .post('/fetch')
       .send({ url: 'https://error-site.com/' });
 

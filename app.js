@@ -5,7 +5,7 @@ const path = require('path');
 const { replaceYaleWithFale } = require('./utils/replaceYale');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // Middleware to parse request bodies
 app.use(express.json());
@@ -69,7 +69,11 @@ app.post('/fetch', async (req, res) => {
   }
 });
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`Faleproxy server running at http://localhost:${PORT}`);
-});
+// Start the server only when this file is executed directly
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Faleproxy server running at http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
